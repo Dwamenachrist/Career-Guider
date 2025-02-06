@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import clips
+from experta import Fact
+from knowledge import Career, Skill, Interest, Education, CareerAdvisor    # Adjust the import as needed
 
 app = Flask(__name__)
 CORS(app)
+
 @app.route('/api/recommendations', methods=['POST'])
 def get_career_recommendations():
     data = request.get_json()
@@ -11,40 +13,36 @@ def get_career_recommendations():
     interests = data.get('interests', [])
     education = data.get('education', '')
 
-    clips_env = clips.Environment()
+    engine = CareerAdvisor()
 
-    try:
-        clips_env.load("career_advisor.clp")
+    # Reset the engine to clear any previous facts
+    engine.reset()
 
-        # Clear existing facts (very important)
+    # Assert education fact
+    engine.declare(Education(level=education))
 
-        clips_env.assert_string(f"(education (level \"{education}\"))")
-        # Add the list
-        for skill in skills:
-            clips_env.assert_string(f"(skill (name \"{skill}\"))")
+    # Assert skill facts
+    for skill in skills:
+        engine.declare(Skill(name=skill))
 
-        for interest in interests:
-            clips_env.assert_string(f"(interest (name \"{interest}\"))")
+    # Assert interest facts
+    for interest in interests:
+        engine.declare(Interest(name=interest))
 
-        clips_env.assert_string("(initial-fact)")
-        clips_env.run()
+    # Run the engine
+    engine.run()
 
-        recommendations = []
-        for fact in clips_env.facts():
-            if fact.template.name == 'career':
-                recommendations.append({
-                    "title": fact['title'],
-                    "description": fact['description'],
-                    "qualifications": fact['qualifications']
-                })
+    # Collect recommendations
+    recommendations = []
+    for fact in engine.facts.values():
+        if isinstance(fact, Career):
+            recommendations.append({
+                "title": fact['title'],
+                "description": fact['description'],
+                "qualifications": fact['qualifications']
+            })
 
-        return jsonify(recommendations)
-    except clips.CLIPSError as e:
-        print("CLIPS error:", e)
-        return jsonify({"error": str(e)}), 500
-
-    finally:
-        clips_env.clear()  # Clean up the clips environment to avoid memory problems
+    return jsonify(recommendations)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
